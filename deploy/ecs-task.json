@@ -1,0 +1,26 @@
+{
+  "family": "artifact-share",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole",
+  "containerDefinitions": [{
+    "name": "artifact-share",
+    "image": "ACCOUNT.dkr.ecr.REGION.amazonaws.com/artifact-share:latest",
+    "essential": true,
+    "portMappings": [{"containerPort": 8080, "protocol": "tcp"}],
+    "environment": [
+      {"name":"BASE_PATH", "value":"/artifacts"},
+      {"name":"COOKIE_SECURE", "value":"true"}
+    ],
+    "secrets": [
+      {"name":"ADMIN_PASSWORD", "valueFrom":"arn:aws:ssm:REGION:ACCOUNT:parameter/artifact-share/admin-password"},
+      {"name":"DATABASE_URL", "valueFrom":"arn:aws:ssm:REGION:ACCOUNT:parameter/artifact-share/database-url"}
+    ],
+    "logConfiguration": {
+      "logDriver":"awslogs",
+      "options":{"awslogs-group":"/ecs/artifact-share", "awslogs-region":"REGION", "awslogs-stream-prefix":"app"}
+    }
+  }]
+}
