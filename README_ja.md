@@ -35,6 +35,36 @@ BASE_PATH=/artifacts COOKIE_SECURE=true ADMIN_PASSWORD='your-initial-password' \
 
 PostgreSQL は事前に空の DB を作成し、ユーザーにテーブル・インデックスの作成権限を付与してください。テーブルは起動時に作成します。初回起動は 1 インスタンスで実施し、その後 PostgreSQL では複数レプリカを使用できます。セッション・API キー・コンテンツは DB に保存します。
 
+## エージェント用 skill
+
+[skills](https://skills.sh/) を使って、同梱の skill を Claude Code にインストールできます。
+
+```sh
+npx skills add frah/artifact-share --skill artifact-share --agent claude-code
+# プロジェクト単位ではなく、グローバルにインストールする場合:
+npx skills add frah/artifact-share --skill artifact-share --agent claude-code --global
+```
+
+Codex では `--agent claude-code` を `--agent codex` に変更してください。skill と補助スクリプトが一緒にインストールされるため、利用時にサーバーのリポジトリを clone する必要はありません。
+
+サーバー画面で API キーを作成し、サービス URL（サブパスを含む）とキーを環境変数に設定して、その環境からコーディングツールを起動してください。
+
+```sh
+export ARTIFACT_SHARE_URL='https://intranet.example.com/artifacts'
+export ARTIFACT_SHARE_KEY='ash_...'
+```
+
+Windows PowerShell の場合:
+
+```powershell
+$env:ARTIFACT_SHARE_URL = 'https://intranet.example.com/artifacts'
+$env:ARTIFACT_SHARE_KEY = 'ash_...'
+```
+
+「report.md を Artifact Share で公開してリンクを教えて」「report.html を alice と bob だけに共有して」のように依頼できます。公開、同じ URL での更新、一覧、内容取得、削除に対応しています。変更を指定しない更新では、既存のタイトルと共有設定を維持します。
+
+補助スクリプトは Node.js 18 以上で動作し、追加パッケージは不要です。API キーを環境変数から読み込み、ユーザー名から共有先を解決し、絶対 URL を返します。社内 CA とプロキシ設定は [skill の説明](skills/artifact-share/SKILL.md) を参照してください。API キーをコミットしたり、チャットに貼り付けたりしないでください。
+
 ## 公開 API / Claude Code
 
 標準の `Authorization: Bearer <APIキー>` と、要件の `Authentication: Bearer <APIキー>` のどちらも利用できます。キーの権限は発行ユーザーの権限と同じです。JSON の上限は 10 MiB です。
@@ -119,6 +149,8 @@ TEST_DATABASE_URL='postgres://postgres:test-password@localhost:55432/artifactsha
 # UI を編集したときのみ。生成済み web/app.js も更新する。
 npm ci && npm run build
 CGO_ENABLED=0 go build -trimpath -o bin/artifact-share .
+# skill 補助スクリプトの実サーバー統合テスト（上記バイナリが必要）。
+node --test tests/skill.test.mjs
 ```
 
 共有範囲、第三者の編集拒否、削除、API キー失効、管理者権限、CSRF、パスワード再設定によるログイン失効、サブパスをテストします。

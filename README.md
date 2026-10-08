@@ -35,6 +35,36 @@ BASE_PATH=/artifacts COOKIE_SECURE=true ADMIN_PASSWORD='your-initial-password' \
 
 For PostgreSQL, create an empty database in advance and grant the database user permission to create tables and indexes. Tables are created at startup. Perform the first start with a single instance; afterward, multiple replicas can be used with PostgreSQL. Sessions, API keys, and content are stored in the database.
 
+## Agent skill
+
+Install the bundled skill with [skills](https://skills.sh/) for Claude Code:
+
+```sh
+npx skills add frah/artifact-share --skill artifact-share --agent claude-code
+# Install globally instead of in the current project:
+npx skills add frah/artifact-share --skill artifact-share --agent claude-code --global
+```
+
+For Codex, replace `--agent claude-code` with `--agent codex`. The skill and its helper are installed together; cloning this server repository is not required to use the skill.
+
+Create an API key in the server UI, configure the service URL (including any base path) and key in the environment, and start your coding tool from that environment:
+
+```sh
+export ARTIFACT_SHARE_URL='https://intranet.example.com/artifacts'
+export ARTIFACT_SHARE_KEY='ash_...'
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:ARTIFACT_SHARE_URL = 'https://intranet.example.com/artifacts'
+$env:ARTIFACT_SHARE_KEY = 'ash_...'
+```
+
+Ask your agent to “Publish report.md through Artifact Share and give me the link” or “Share report.html only with alice and bob.” The skill supports publishing, updating an artifact at the same URL, listing, fetching, and deleting content. Updates preserve the existing title and sharing settings unless you request a change.
+
+The helper requires Node.js 18+ and no additional packages. It reads the API key from the environment, resolves exact usernames, and returns absolute share URLs. For corporate CA and proxy settings, see [the skill instructions](skills/artifact-share/SKILL.md). API keys should not be committed or pasted into chat.
+
 ## Publishing API / Claude Code
 
 Both the standard `Authorization: Bearer <API key>` header and the `Authentication: Bearer <API key>` header are supported. An API key has the same permissions as the user who issued it. JSON request bodies are limited to 10 MiB.
@@ -120,6 +150,8 @@ TEST_DATABASE_URL='postgres://postgres:test-password@localhost:55432/artifactsha
 # Only needed when editing the UI. Update the generated web/app.js as well.
 npm ci && npm run build
 CGO_ENABLED=0 go build -trimpath -o bin/artifact-share .
+# Integration test for the skill helper (requires the server binary above).
+node --test tests/skill.test.mjs
 ```
 
 Tests cover sharing permissions, rejection of edits by other users, deletion, API key revocation, administrator permissions, CSRF, session invalidation after a password reset, and subpath support.
