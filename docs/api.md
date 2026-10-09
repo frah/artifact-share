@@ -10,13 +10,14 @@
 {
   "title": "設計レポート",
   "kind": "md",
+  "source_path": "docs/report.md",
   "content": "# 概要\n\n```mermaid\ngraph LR\nA --> B\n```",
   "visibility": "users",
   "users": ["共有先のユーザーID"]
 }
 ```
 
-`kind`: `md` / `html`。`visibility`: `link` / `users`。リンク共有時は `users: []`。ユーザーIDは `GET /api/users` で取得します。PUT は全フィールドを再送してください。タイトル必須、リクエスト最大 10 MiB。共有先の存在も検証します。
+`kind`: `md` / `html`。`visibility`: `link` / `users`。リンク共有時は `users: []`。ユーザーIDは `GET /api/users` で取得します。PUT は全フィールドを再送してください。タイトル必須、リクエスト最大 10 MiB。共有先の存在も検証します。`source_path` は任意で、ドキュメントルートからの相対パス（例 `docs/report.md`）を指定します。絶対パスやルートの外へ出るパスは受け付けません。PUT で省略した場合は既存のパスを維持し、空文字を指定すると消去します。
 
 応答:
 
@@ -24,6 +25,8 @@
 {
   "id": "ランダムID",
   "owner": "所有者ID",
+  "owner_name": "alice",
+  "source_path": "docs/report.md",
   "title": "設計レポート",
   "kind": "md",
   "content": "...",
@@ -39,6 +42,16 @@
 - `DELETE /api/artifacts/{id}`: 所有者／管理者が削除。`{"ok":true}`。
 - `GET /api/share?id={id}`: 閲覧者向けの全内容。リンク共有は認証不要。ユーザー指定は認証必須。
 - `GET /s/{id}`: ブラウザ画面。`GET /s/{id}/raw`: sandbox 用 HTML レスポンス。
+
+## Markdown の相対リンク
+
+`GET /api/resolve?id={表示中のartifact ID}&href={URLエンコードした相対リンク}` は、表示中の artifact の `source_path` を基準にリンク先を解決し、`{"url":"/artifacts/s/リンク先ID"}` を返します。`../`、URL エンコードされたファイル名、クエリ文字列、フラグメントに対応します。
+
+例: `docs/index.md` の `./hoge/piyo.md` は同じオーナーの `docs/hoge/piyo.md` にリンクします。同じパスの複数の artifact がある場合は、パスが明示されたものを優先し、その中で最新のものを選びます。元とリンク先の両方に閲覧権限が必要です。未公開・権限なし・ルート外は 404 です。新しい非公開 artifact を閲覧できない場合に、古い公開版へフォールバックしません。
+
+既存データは `source_path` が空のまま移行されます。パス情報がない場合はタイトルを元パスとして使い、リンク先もタイトルがパスと一致する既存 artifact を検索できます。それ以外は管理画面で元ファイルのパスを設定してください。
+
+閲覧画面は外部 URL、`/` 始まりの URL、`#` 始まりのページ内リンクを変更しません。解決できない相対リンクをクリックすると案内を表示し、存在しないサービス内 URL への遷移を抑えます。相対パスの画像・添付ファイルアップロードには対応していません。
 
 ## 認証
 

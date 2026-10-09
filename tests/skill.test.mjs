@@ -74,8 +74,9 @@ test('installed helper can manage artifacts against the real server', async t =>
   assert.equal(linked.visibility, 'link');
   assert.equal(linked.url, base + '/s/' + linked.id);
   assert.equal(linked.kind, 'md');
+  assert.equal(linked.source_path, "設計 report's.md");
   assert.ok(!('content' in linked));
-  const restricted = await cli('publish', md, '--visibility', 'users', '--usernames', 'alice', '--title', 'Restricted');
+  const restricted = await cli('publish', md, '--visibility', 'users', '--usernames', 'alice', '--title', 'Restricted', '--source-path', 'docs/report.md');
   const recipients = await cli('users');
   const alice = recipients.find(u => u.name === 'alice');
   assert.deepEqual(restricted.users, [alice.id]);
@@ -86,6 +87,7 @@ test('installed helper can manage artifacts against the real server', async t =>
   assert.equal(updated.title, restricted.title);
   assert.equal(updated.visibility, 'users');
   assert.deepEqual(updated.users, [alice.id]);
+  assert.equal(updated.source_path, 'docs/report.md');
   assert.equal(updated.kind, 'html');
   const full = await cli('get', restricted.id);
   assert.equal(full.content, '<h1>Updated</h1><script>console.log("ok")</script>');

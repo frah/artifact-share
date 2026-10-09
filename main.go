@@ -13,8 +13,10 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"strconv"
 	"strings"
 	"syscall"
@@ -64,6 +66,8 @@ type User struct {
 type Artifact struct {
 	ID         string   `json:"id"`
 	Owner      string   `json:"owner"`
+	OwnerName  string   `json:"owner_name"`
+	SourcePath string   `json:"source_path"`
 	Title      string   `json:"title"`
 	Kind       string   `json:"kind"`
 	Content    string   `json:"content"`
@@ -162,7 +166,7 @@ func (a *App) createUser(name, password string, admin bool) error {
 func (a *App) artifact(id string) (Artifact, error) {
 	var v Artifact
 	var users string
-	e := a.row("SELECT id,owner,title,kind,content,visibility,recipients,updated FROM artifacts WHERE id=?", id).Scan(&v.ID, &v.Owner, &v.Title, &v.Kind, &v.Content, &v.Visibility, &users, &v.Updated)
+	e := a.row("SELECT ar.id,ar.owner,u.name,ar.title,ar.kind,ar.content,ar.visibility,ar.recipients,ar.updated,ar.source_path FROM artifacts ar JOIN users u ON u.id=ar.owner WHERE ar.id=?", id).Scan(&v.ID, &v.Owner, &v.OwnerName, &v.Title, &v.Kind, &v.Content, &v.Visibility, &users, &v.Updated, &v.SourcePath)
 	json.Unmarshal([]byte(users), &v.Users)
 	v.URL = a.base + "/s/" + v.ID
 	return v, e
@@ -294,6 +298,22 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		send(w, 200, map[string]any{"signup": a.signup, "base": a.base})
 		return
 	}
+	if p == "/api/resolve" && r.Method == "GET" {
+		source, err := a.artifact(r.URL.Query().Get("id"))
+		if err != nil || !allowed(source, u, logged) {
+			fail(w, 404, "artifact not found or access denied")
+			return
+		}
+		target, err := a.resolveRelative(source, r.URL.Query().Get("href"))
+		if err != nil || !allowed(target, u, logged) {
+			fail(w, 404, "linked artifact not found or access denied")
+			return
+		}
+		link, _ := url.Parse(r.URL.Query().Get("href"))
+		destination := url.URL{Path: target.URL, RawQuery: link.RawQuery, Fragment: link.Fragment}
+		send(w, 200, map[string]string{"url": destination.String()})
+		return
+	}
 	if p == "/api/share" && r.Method == "GET" {
 		v, e := a.artifact(r.URL.Query().Get("id"))
 		if e != nil || !allowed(v, u, logged) {
@@ -419,17 +439,24 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p == "/api/artifacts" && r.Method == "GET" {
-		a.list(w, "SELECT id,title,kind,visibility,updated FROM artifacts WHERE owner=? ORDER BY updated DESC", "artifacts", u.ID)
+		a.list(w, "SELECT ar.id,ar.owner,u.name,ar.title,ar.kind,ar.visibility,ar.updated,ar.source_path FROM artifacts ar JOIN users u ON u.id=ar.owner WHERE ar.owner=? ORDER BY ar.updated DESC", "artifacts", u.ID)
 		return
 	}
 	if p == "/api/admin/artifacts" && r.Method == "GET" && u.Admin {
-		a.list(w, "SELECT id,title,kind,visibility,updated FROM artifacts ORDER BY updated DESC", "artifacts")
+		a.list(w, "SELECT ar.id,ar.owner,u.name,ar.title,ar.kind,ar.visibility,ar.updated,ar.source_path FROM artifacts ar JOIN users u ON u.id=ar.owner ORDER BY ar.updated DESC", "artifacts")
 		return
 	}
 	if p == "/api/artifacts" && r.Method == "POST" || strings.HasPrefix(p, "/api/artifacts/") && r.Method == "PUT" {
-		var v Artifact
-		if !decode(w, r, &v) {
+		var in struct {
+			Artifact
+			SourcePath *string `json:"source_path"`
+		}
+		if !decode(w, r, &in) {
 			return
+		}
+		v := in.Artifact
+		if in.SourcePath != nil {
+			v.SourcePath = *in.SourcePath
 		}
 		if v.Kind != "html" && v.Kind != "md" {
 			fail(w, 400, "kind must be html or md")
@@ -443,6 +470,12 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "title required")
 			return
 		}
+		normalized, err := normalizeSourcePath(v.SourcePath)
+		if err != nil {
+			fail(w, 400, err.Error())
+			return
+		}
+		v.SourcePath = normalized
 		for _, id := range v.Users {
 			var exists string
 			if a.row("SELECT id FROM users WHERE id=?", id).Scan(&exists) != nil {
@@ -456,7 +489,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var e error
 		if r.Method == "POST" {
 			v.ID = token()
-			e = a.exec("INSERT INTO artifacts(id,owner,title,kind,content,visibility,recipients,updated) VALUES(?,?,?,?,?,?,?,?)", v.ID, v.Owner, v.Title, v.Kind, v.Content, v.Visibility, string(recipients), v.Updated)
+			e = a.exec("INSERT INTO artifacts(id,owner,title,kind,content,visibility,recipients,updated,source_path) VALUES(?,?,?,?,?,?,?,?,?)", v.ID, v.Owner, v.Title, v.Kind, v.Content, v.Visibility, string(recipients), v.Updated, v.SourcePath)
 		} else {
 			v.ID = strings.TrimPrefix(p, "/api/artifacts/")
 			old, err := a.artifact(v.ID)
@@ -468,8 +501,11 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				fail(w, 403, "owner required")
 				return
 			}
+			if in.SourcePath == nil {
+				v.SourcePath = old.SourcePath
+			}
 			v.Owner = old.Owner
-			e = a.exec("UPDATE artifacts SET title=?,kind=?,content=?,visibility=?,recipients=?,updated=? WHERE id=?", v.Title, v.Kind, v.Content, v.Visibility, string(recipients), v.Updated, v.ID)
+			e = a.exec("UPDATE artifacts SET title=?,kind=?,content=?,visibility=?,recipients=?,updated=?,source_path=? WHERE id=?", v.Title, v.Kind, v.Content, v.Visibility, string(recipients), v.Updated, v.SourcePath, v.ID)
 		}
 		if e != nil {
 			fail(w, 500, "save failed")
@@ -480,7 +516,12 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			status = 201
 		}
-		send(w, status, v)
+		saved, err := a.artifact(v.ID)
+		if err != nil {
+			fail(w, 500, "cannot read saved artifact")
+			return
+		}
+		send(w, status, saved)
 		return
 	}
 	if strings.HasPrefix(p, "/api/artifacts/") {
@@ -537,7 +578,7 @@ func (a *App) list(w http.ResponseWriter, q, kind string, args ...any) {
 			}
 		default:
 			var v Artifact
-			if e = rows.Scan(&v.ID, &v.Title, &v.Kind, &v.Visibility, &v.Updated); e == nil {
+			if e = rows.Scan(&v.ID, &v.Owner, &v.OwnerName, &v.Title, &v.Kind, &v.Visibility, &v.Updated, &v.SourcePath); e == nil {
 				v.URL = a.base + "/s/" + v.ID
 				out = append(out, v)
 			}
@@ -579,12 +620,15 @@ func newApp() (*App, error) {
 		"CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,password TEXT NOT NULL,admin INTEGER NOT NULL DEFAULT 0)",
 		"CREATE TABLE IF NOT EXISTS sessions(digest TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,expires BIGINT NOT NULL)",
 		"CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,name TEXT NOT NULL,digest TEXT NOT NULL UNIQUE,created TEXT NOT NULL)",
-		"CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,kind TEXT NOT NULL,content TEXT NOT NULL,visibility TEXT NOT NULL,recipients TEXT NOT NULL,updated TEXT NOT NULL)",
+		"CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,owner TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,kind TEXT NOT NULL,content TEXT NOT NULL,visibility TEXT NOT NULL,recipients TEXT NOT NULL,updated TEXT NOT NULL,source_path TEXT NOT NULL DEFAULT '')",
 		"CREATE INDEX IF NOT EXISTS artifacts_owner ON artifacts(owner)",
 	} {
 		if e = a.exec(q); e != nil {
 			return nil, e
 		}
+	}
+	if err := a.migrateSourcePath(); err != nil {
+		return nil, err
 	}
 	a.auth = LocalAuthenticator{app: a}
 	var count int
@@ -625,4 +669,74 @@ func main() {
 	if e = s.ListenAndServe(); e != nil && e != http.ErrServerClosed {
 		log.Fatal(e)
 	}
+}
+
+// source_path is a logical path relative to the document root, never a filesystem path.
+func normalizeSourcePath(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	if strings.HasPrefix(value, "/") || strings.ContainsAny(value, ":\x00") {
+		return "", errors.New("source_path must be relative to the document root")
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", errors.New("source_path must name a file within the document root")
+	}
+	return cleaned, nil
+}
+func (a *App) resolveRelative(source Artifact, href string) (Artifact, error) {
+	link, e := url.Parse(href)
+	if e != nil || link.IsAbs() || link.Host != "" || strings.HasPrefix(link.Path, "/") || strings.Contains(link.Path, "\\") {
+		return Artifact{}, errors.New("expected a relative document link")
+	}
+	if link.Path == "" {
+		return source, nil
+	}
+	sourcePath := source.SourcePath
+	if sourcePath == "" {
+		sourcePath = source.Title
+	}
+	resolved, e := normalizeSourcePath(path.Join(path.Dir(sourcePath), link.Path))
+	if e != nil {
+		return Artifact{}, e
+	}
+	var id string
+	e = a.row("SELECT id FROM artifacts WHERE owner=? AND (source_path=? OR (source_path='' AND title=?)) ORDER BY CASE WHEN source_path=? THEN 0 ELSE 1 END,updated DESC,id DESC LIMIT 1", source.Owner, resolved, resolved, resolved).Scan(&id)
+	if e != nil {
+		return Artifact{}, e
+	}
+	return a.artifact(id)
+}
+func (a *App) migrateSourcePath() error {
+	if a.pg {
+		return a.exec("ALTER TABLE artifacts ADD COLUMN IF NOT EXISTS source_path TEXT NOT NULL DEFAULT ''")
+	}
+	rows, e := a.db.Query("PRAGMA table_info(artifacts)")
+	if e != nil {
+		return e
+	}
+	found := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, kind string
+		var defaultValue sql.NullString
+		if e = rows.Scan(&cid, &name, &kind, &notnull, &defaultValue, &pk); e != nil {
+			rows.Close()
+			return e
+		}
+		if name == "source_path" {
+			found = true
+		}
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return e
+	}
+	if found {
+		return nil
+	}
+	return a.exec("ALTER TABLE artifacts ADD COLUMN source_path TEXT NOT NULL DEFAULT ''")
 }

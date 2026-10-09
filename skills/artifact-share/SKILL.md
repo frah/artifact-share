@@ -44,13 +44,22 @@ node "<skill-directory>/scripts/artifact-share.mjs" publish "report.html" --titl
 
 Use `--users "USER_ID_1,USER_ID_2"` instead of `--usernames` when IDs are already known. Do not combine both options. `--users ""` with `--visibility users` shares only with the owner and administrators. Recipient options require `users` visibility; the helper will not silently switch audiences.
 
-Update content at the same share URL, preserving the existing title, visibility, and recipients:
+Markdown links such as `./hoge/piyo.md` resolve to artifacts published by the same owner. Publish related documents with consistent logical source paths relative to one document root:
+
+```sh
+node "<skill-directory>/scripts/artifact-share.mjs" publish "docs/index.md" --title "Index" --source-path "docs/index.md"
+node "<skill-directory>/scripts/artifact-share.mjs" publish "docs/hoge/piyo.md" --title "Details" --source-path "docs/hoge/piyo.md"
+```
+
+The helper defaults `source_path` to a relative input file path, or its filename when using an absolute path or a path containing `..`. Use `--source-path` to retain the document's original logical path when publishing from a temporary file. Relative links use the newest artifact at that path, with the target's own access checks. Fragment-only, origin-relative, and external links are preserved. Missing or inaccessible targets show an unavailable-link message.
+
+Update content at the same share URL, preserving the existing title, source path, visibility, and recipients:
 
 ```sh
 node "<skill-directory>/scripts/artifact-share.mjs" update "ARTIFACT_ID" "report.md"
 ```
 
-To change the title or audience, explicitly pass `--title`, `--visibility`, and recipient options as needed. An update changing `users` to `link` grants access without login to anyone who knows the URL; make that change only when the user requests it.
+To change the title or audience, explicitly pass `--title`, `--source-path`, `--visibility`, and recipient options as needed. An update changing `users` to `link` grants access without login to anyone who knows the URL; make that change only when the user requests it.
 
 List your artifacts or the available sharing recipients:
 

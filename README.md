@@ -99,7 +99,7 @@ All application endpoints are under `BASE_PATH`. See [docs/api.md](docs/api.md) 
 
 | Method / path | Action |
 | --- | --- |
-| `POST /api/artifacts` | Publish: title, kind (`html` / `md`), content, visibility (`link` / `users`), users (array of user IDs) |
+| `POST /api/artifacts` | Publish: title, kind (`html` / `md`), content, visibility (`link` / `users`), users (array of user IDs), optional source_path |
 | `GET /api/artifacts` | List your own content |
 | `GET /api/artifacts/{id}` | Retrieve content for editing as its owner or an administrator |
 | `PUT /api/artifacts/{id}` | Update content and sharing settings while keeping the same share URL |
@@ -107,6 +107,7 @@ All application endpoints are under `BASE_PATH`. See [docs/api.md](docs/api.md) 
 | `GET /api/users` | List users to select sharing recipients |
 | `GET /api/share?id={id}` | Retrieve content you have permission to view |
 | `GET /s/{id}` | Browser viewing page |
+| `GET /api/resolve?id={id}&href={relative-link}` | Resolve a relative link to another artifact by the same owner, applying access checks |
 | `GET /api/keys`, `POST /api/keys` | List or issue your own API keys |
 | `DELETE /api/keys/{id}` | Revoke your own API key |
 | `GET /api/admin/users`, `POST /api/admin/users` | List or create users as an administrator |
@@ -119,6 +120,7 @@ All application endpoints are under `BASE_PATH`. See [docs/api.md](docs/api.md) 
 - **Link sharing**: Anyone who knows the randomly generated URL can view the content without signing in.
 - **Sharing with specific users**: Only the selected users, the content owner, and administrators can view the content. Selected users must sign in; knowing the URL alone does not grant access.
 - **Markdown**: Rendered with marked and DOMPurify. `mermaid` code blocks are rendered as diagrams.
+- **Relative document links**: Set the optional `source_path` field (for example `docs/index.md`) when publishing, or set it in the editor. A link to `./hoge/piyo.md` then resolves to the same owner's artifact with `source_path: docs/hoge/piyo.md`. The skill and publish script derive a default path from the input filename; use the skill's `--source-path` option or the script's fifth argument to override it. The newest artifact at that path is used, with its own viewing permissions. External and in-page links are preserved. Missing or inaccessible destinations display an unavailable-link message. Existing artifacts can also be matched by titles that represent paths; otherwise, set their source paths in the editor. The database column is added automatically on startup.
 - **HTML**: Displayed in a sandboxed iframe with JavaScript enabled. Self-contained HTML is recommended. Uploading accompanying files referenced by relative paths is not supported. Images, scripts, and other resources at external URLs depend on network access from the viewer's device.
 
 Designed for intranet use, the application implements bcrypt password hashing, hashed API keys and session tokens, ownership checks, SameSite cookies, and CSRF tokens for UI actions. It does not include a WAF, MFA, or an audit infrastructure. The HTML sandbox limits interference with the host page, but does not provide network isolation.
