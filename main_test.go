@@ -216,78 +216,18 @@ func TestArtifactOwnerName(t *testing.T) {
 	}
 }
 
-func TestRelativeArtifactLinks(t *testing.T) {
+func TestExistingDatabaseWithUnusedSourcePathColumn(t *testing.T) {
 	a := testApp(t)
-	for _, name := range []string{"author", "other"} {
-		if e := a.createUser(name, "initial-password", false); e != nil {
-			t.Fatal(e)
-		}
+	if e := a.exec("ALTER TABLE artifacts ADD COLUMN source_path TEXT NOT NULL DEFAULT ''"); e != nil {
+		t.Fatal(e)
 	}
-	author := key(t, a, "author")
-	other := key(t, a, "other")
-	publish := func(key, title, sourcePath, visibility string) map[string]any {
-		t.Helper()
-		return obj(t, req(a, "POST", "/artifacts/api/artifacts", map[string]any{"title": title, "source_path": sourcePath, "kind": "md", "content": "# Document", "visibility": visibility, "users": []string{}}, key, nil, ""), 201)
-	}
-	source := publish(author, "Index", "docs/index.md", "link")
-	target := publish(author, "Details", "docs/hoge/piyo.md", "link")
-	parent := publish(author, "Introduction", "intro.md", "link")
-	encoded := publish(author, "Encoded filename", "docs/hoge/日本語 #.md", "link")
-	publish(other, "Different owner", "docs/hoge/piyo.md", "link")
-	resolve := func(href, key string) *httptest.ResponseRecorder {
-		return req(a, "GET", "/artifacts/api/resolve?"+url.Values{"id": {source["id"].(string)}, "href": {href}}.Encode(), nil, key, nil, "")
-	}
-	for href, want := range map[string]string{"./hoge/piyo.md": target["url"].(string), "hoge/piyo.md?view=1#section": target["url"].(string) + "?view=1#section", "../intro.md": parent["url"].(string), "#section": source["url"].(string) + "#section", "hoge/日本語%20%23.md": encoded["url"].(string)} {
-		result := obj(t, resolve(href, ""), 200)
-		if result["url"] != want {
-			t.Fatalf("%s: got %v want %s", href, result["url"], want)
-		}
-	}
-	for _, href := range []string{"missing.md", "../../../intro.md", "https://example.com/x.md", "//example.com/x.md", "/intro.md", "javascript:alert(1)"} {
-		obj(t, resolve(href, ""), 404)
-	}
-	private := publish(author, "Private details", "docs/hoge/piyo.md", "users")
-	obj(t, resolve("hoge/piyo.md", ""), 404)
-	obj(t, resolve("hoge/piyo.md", other), 404)
-	if obj(t, resolve("hoge/piyo.md", author), 200)["url"] != private["url"] {
-		t.Fatal("newest document path did not resolve")
-	}
-	// Older API clients omitting source_path retain it on updates.
-	updated := obj(t, req(a, "PUT", "/artifacts/api/artifacts/"+target["id"].(string), map[string]any{"title": "Updated details", "kind": "md", "content": "Updated", "visibility": "link", "users": []string{}}, author, nil, ""), 200)
-	if updated["source_path"] != "docs/hoge/piyo.md" {
-		t.Fatal("update lost source path")
-	}
-	// Legacy artifacts whose title is a path are still resolvable.
-	legacy := publish(author, "docs/legacy.md", "", "link")
-	if obj(t, resolve("./legacy.md", ""), 200)["url"] != legacy["url"] {
-		t.Fatal("legacy title lookup failed")
-	}
-	for _, value := range []string{"/absolute.md", "../outside.md", "C:\\docs\\index.md"} {
-		obj(t, req(a, "POST", "/artifacts/api/artifacts", map[string]any{"title": "Invalid path", "source_path": value, "kind": "md", "content": "x", "visibility": "link"}, author, nil, ""), 400)
-	}
-}
-
-func TestExistingDatabaseSourcePathMigration(t *testing.T) {
-	a := testApp(t)
 	admin := key(t, a, "admin")
-	v := obj(t, req(a, "POST", "/artifacts/api/artifacts", map[string]any{"title": "Existing document", "kind": "md", "content": "Existing content", "visibility": "link"}, admin, nil, ""), 201)
-	if err := a.exec("ALTER TABLE artifacts DROP COLUMN source_path"); err != nil {
-		t.Fatal(err)
+	created := obj(t, req(a, "POST", "/artifacts/api/artifacts", map[string]any{"title": "Existing schema", "kind": "md", "content": "# Document", "visibility": "link"}, admin, nil, ""), 201)
+	if _, exists := created["source_path"]; exists {
+		t.Fatal("response still exposes removed source path")
 	}
-	a.db.Close()
-	upgraded, err := newApp()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer upgraded.db.Close()
-	if err = upgraded.migrateSourcePath(); err != nil {
-		t.Fatal("migration not idempotent", err)
-	}
-	saved, err := upgraded.artifact(v["id"].(string))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if saved.Content != "Existing content" || saved.SourcePath != "" || saved.OwnerName != "admin" {
-		t.Fatal("migration changed existing document", saved)
+	obj(t, req(a, "GET", "/artifacts/api/share?id="+created["id"].(string), nil, "", nil, ""), 200)
+	if req(a, "GET", "/artifacts/api/resolve?id="+created["id"].(string), nil, admin, nil, "").Code != 404 {
+		t.Fatal("obsolete resolver is still available")
 	}
 }

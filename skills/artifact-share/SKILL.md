@@ -21,7 +21,7 @@ If configuration is missing, explain which variable is needed. Ask the user to c
 ## Workflow
 
 1. Identify the file and the requested audience. For an ordinary request to publish or obtain a share link, use `link`. If the user requests restricted sharing, use `users` and identify the recipients. Resolve recipients by exact username; ask about ambiguous or missing recipients rather than widening access.
-2. Create a local UTF-8 `.html`, `.htm`, `.md`, or `.markdown` file if it does not already exist. Use self-contained HTML: accompanying relative-path assets cannot be uploaded. Markdown supports fenced `mermaid` blocks. The JSON request limit is 10 MiB.
+2. Create a local UTF-8 `.html`, `.htm`, `.md`, or `.markdown` file if it does not already exist. Use self-contained HTML: accompanying relative-path assets cannot be uploaded. Markdown supports fenced `mermaid` blocks. Only valid, fully qualified HTTP(S) URLs are clickable; relative paths, fragments, and other schemes display as ordinary text. Use complete share URLs when linking between documents. The JSON request limit is 10 MiB.
 3. Locate `scripts/artifact-share.mjs` relative to **this installed SKILL.md**, not the user's project. Substitute its actual absolute path for `<skill-directory>` in the commands below. Quote file paths.
 4. Run the helper. A publish request authorizes the upload; proceed without an additional confirmation. Update an existing artifact when the user supplies its ID or asks to revise that artifact, keeping its sharing settings unless the user requests a change. If it is unclear which existing artifact to change, use `list` and clarify the target.
 5. Report success only after a successful API response. Return the absolute share URL and a short description of the audience. Keep the artifact ID available for later updates. Selected recipients must log in; owners and administrators can also view restricted artifacts.
@@ -44,22 +44,13 @@ node "<skill-directory>/scripts/artifact-share.mjs" publish "report.html" --titl
 
 Use `--users "USER_ID_1,USER_ID_2"` instead of `--usernames` when IDs are already known. Do not combine both options. `--users ""` with `--visibility users` shares only with the owner and administrators. Recipient options require `users` visibility; the helper will not silently switch audiences.
 
-Markdown links such as `./hoge/piyo.md` resolve to artifacts published by the same owner. Publish related documents with consistent logical source paths relative to one document root:
-
-```sh
-node "<skill-directory>/scripts/artifact-share.mjs" publish "docs/index.md" --title "Index" --source-path "docs/index.md"
-node "<skill-directory>/scripts/artifact-share.mjs" publish "docs/hoge/piyo.md" --title "Details" --source-path "docs/hoge/piyo.md"
-```
-
-The helper defaults `source_path` to a relative input file path, or its filename when using an absolute path or a path containing `..`. Use `--source-path` to retain the document's original logical path when publishing from a temporary file. Relative links use the newest artifact at that path, with the target's own access checks. Fragment-only, origin-relative, and external links are preserved. Missing or inaccessible targets show an unavailable-link message.
-
-Update content at the same share URL, preserving the existing title, source path, visibility, and recipients:
+Update content at the same share URL, preserving the existing title, visibility, and recipients:
 
 ```sh
 node "<skill-directory>/scripts/artifact-share.mjs" update "ARTIFACT_ID" "report.md"
 ```
 
-To change the title or audience, explicitly pass `--title`, `--source-path`, `--visibility`, and recipient options as needed. An update changing `users` to `link` grants access without login to anyone who knows the URL; make that change only when the user requests it.
+To change the title or audience, explicitly pass `--title`, `--visibility`, and recipient options as needed. An update changing `users` to `link` grants access without login to anyone who knows the URL; make that change only when the user requests it.
 
 List your artifacts or the available sharing recipients:
 

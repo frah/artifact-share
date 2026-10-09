@@ -99,7 +99,7 @@ Claude Code のプロジェクト `CLAUDE.md` に、例えば次を記載でき�
 
 | メソッド / パス | 動作 |
 | --- | --- |
-| `POST /api/artifacts` | 公開。title, kind (`html` / `md`), content, visibility (`link` / `users`), users (ユーザー ID 配列)、任意の source_path |
+| `POST /api/artifacts` | 公開。title, kind (`html` / `md`), content, visibility (`link` / `users`), users (ユーザー ID 配列) |
 | `GET /api/artifacts` | 自分の一覧 |
 | `GET /api/artifacts/{id}` | 自分または管理者が編集用内容を取得 |
 | `PUT /api/artifacts/{id}` | 内容・公開範囲を更新、共有 URL は維持 |
@@ -107,7 +107,6 @@ Claude Code のプロジェクト `CLAUDE.md` に、例えば次を記載でき�
 | `GET /api/users` | 共有先を選ぶユーザー一覧 |
 | `GET /api/share?id={id}` | 閲覧権限のあるコンテンツを取得 |
 | `GET /s/{id}` | 閲覧画面 |
-| `GET /api/resolve?id={id}&href={相対リンク}` | 同じオーナーのリンク先を、閲覧権限を確認して解決 |
 | `GET /api/keys`, `POST /api/keys` | 自分のキー一覧・発行 |
 | `DELETE /api/keys/{id}` | 自分のキーを失効 |
 | `GET /api/admin/users`, `POST /api/admin/users` | 管理者による一覧・作成 |
@@ -120,7 +119,7 @@ Claude Code のプロジェクト `CLAUDE.md` に、例えば次を記載でき�
 - **リンク共有**: ランダムな URL を知っている人はログインなしで閲覧できます。
 - **ユーザー指定共有**: 指定したユーザー、作成者、管理者だけが閲覧できます。指定ユーザーはログインしてください。URL だけでは閲覧できません。
 - **Markdown**: marked + DOMPurify で描画し、`mermaid` コードブロックを図にします。
-- **ドキュメントの相対リンク**: 公開時に任意の `source_path`（例 `docs/index.md`）を指定するか、編集画面で元ファイルのパスを設定します。`./hoge/piyo.md` は同じオーナーの `source_path: docs/hoge/piyo.md` を持つ artifact にリンクします。skill と公開スクリプトは入力ファイルからパスを設定し、skill の `--source-path` またはスクリプトの第5引数で変更できます。同じパスでは最新の artifact を使い、リンク先自身の閲覧権限を適用します。外部リンクやページ内リンクは維持し、未公開・権限なしの場合は案内を表示します。既存 artifact はタイトルがパスの場合も検索できますが、それ以外は編集画面で元パスを設定してください。DB の列は起動時に自動追加します。
+- **Markdown のリンク**: 有効な `http://` または `https://` から始まる完全な URL のみリンクにします。相対パス、ルート相対パス、`//` 始まりの URL、フラグメント、その他のスキームはリンクにせず、リンクテキストの装飾を保って通常の内容として表示します。
 - **HTML**: JavaScript が動作する sandbox iframe で表示します。自己完結した HTML を推奨します。相対パスの付属ファイルアップロードには対応していません。外部 URL の画像・スクリプト等は端末のネットワーク到達性に依存します。
 
 イントラネットを前提に、bcrypt のパスワード、ハッシュ化した API キー／セッション、所有者の区別、Cookie の SameSite、画面操作の CSRF トークンを実装しています。WAF、MFA、監査基盤などは組み込んでいません。HTML の sandbox はホスト画面への干渉を抑えますが、ネットワーク隔離の仕組みではありません。

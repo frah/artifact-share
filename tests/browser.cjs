@@ -15,25 +15,27 @@ const assert=require('node:assert/strict');
  const users=await (await ctx.request.get(base+'/api/users',{headers:{Authorization:'Bearer '+key}})).json();const recipient=users.find(x=>x.name===username);const restricted=await (await ctx.request.post(base+'/api/artifacts',{headers:{Authorization:'Bearer '+key},data:{title:'Private HTML',kind:'html',content:'<h1>Private content</h1>',visibility:'users',users:[recipient.id]}})).json();await viewer.goto(new URL(base).origin+restricted.url);await viewer.getByRole('heading',{name:'コンテンツを表示できません'}).waitFor();await viewer.goto(base+'/');await viewer.locator('#login input[name=name]').fill(username);await viewer.locator('#login input[name=password]').fill('initial-password');await viewer.locator('#login button').click();await viewer.locator('#new').waitFor();await viewer.goto(new URL(base).origin+restricted.url);await viewer.frameLocator('iframe').getByRole('heading',{name:'Private content'}).waitFor();
 
  const publish=async data=>{const response=await ctx.request.post(base+'/api/artifacts',{headers:{Authorization:'Bearer '+key},data:{kind:'md',visibility:'link',users:[],...data}});assert.equal(response.status(),201);return response.json()};
- const detail=await publish({title:'Linked details',source_path:'docs/hoge/piyo.md',content:'<h2 id="section">Linked section</h2>'});
- const intro=await publish({title:'Introduction',source_path:'intro.md',content:'# Introduction'});
- const secret=await publish({title:'Restricted details',source_path:'docs/secret.md',content:'# Restricted',visibility:'users',users:[]});
- const links=await publish({title:'Document <links> & guide',source_path:'docs/index.md',content:'[Details](./hoge/piyo.md?view=1#section)\n\n[Parent](../intro.md)\n\n[Missing](./missing.md)\n\n[Private](./secret.md)\n\n[External](https://example.com/docs)\n\n[Fragment](#local)'});
- const publicContext=await browser.newContext();const linkPage=await publicContext.newPage();linkPage.on('pageerror',e=>errors.push(e.message));await linkPage.goto(new URL(base).origin+links.url);
- await linkPage.locator('a[data-source-href="./hoge/piyo.md?view=1#section"]').waitFor();
- await linkPage.waitForFunction(()=>document.querySelector('a[data-source-href="./hoge/piyo.md?view=1#section"]').getAttribute('href').includes('/s/'));
- assert.equal(await linkPage.title(),'Document <links> & guide · Artifact Share');assert.equal(await linkPage.locator('.share-owner').textContent(),'オーナー: admin');
- assert.equal(await linkPage.getByRole('link',{name:'Details',exact:true}).getAttribute('href'),detail.url+'?view=1#section');
- assert.equal(await linkPage.getByRole('link',{name:'Parent',exact:true}).getAttribute('href'),intro.url);
- assert.equal(await linkPage.getByRole('link',{name:'External',exact:true}).getAttribute('href'),'https://example.com/docs');
- assert.equal(await linkPage.getByRole('link',{name:'Fragment',exact:true}).getAttribute('href'),'#local');
- await linkPage.locator('a.unresolved-link').first().waitFor();assert.equal(await linkPage.locator('a.unresolved-link').count(),2);
- const beforeClick=linkPage.url();await linkPage.getByRole('link',{name:'Missing',exact:true}).click();assert.equal(linkPage.url(),beforeClick);await linkPage.locator('#toast').waitFor();
- await linkPage.getByRole('link',{name:'Details',exact:true}).click();await linkPage.getByRole('heading',{name:'Linked section'}).waitFor();assert.equal(linkPage.url(),new URL(base).origin+detail.url+'?view=1#section');
- await page.goto(base+'/');await page.locator('.artifacts-table').waitFor();const ownRows=await page.locator('.artifacts-table tbody tr').count();assert.ok(ownRows>=7);assert.equal(await page.locator('.artifacts-table thead th').count(),6);
- await page.locator('.artifacts-table [data-edit="'+links.id+'"]').click();await page.locator('#editor input[name=source_path]').waitFor();assert.equal(await page.locator('#editor input[name=source_path]').inputValue(),'docs/index.md');await page.locator('#editor input[name=title]').fill('Updated link guide');await page.locator('#editor button.primary').click();await page.locator('dialog').waitFor();await page.locator('dialog button').click();
+ const links=await publish({title:'Document <links> & guide',content:[
+ '[Relative](./hoge/piyo.md)', '[Parent](../intro.md)', '[Root](/docs/report.md)', '[Protocol relative](//example.com/docs)', '[Fragment](#local)', '[Query](?view=1)', '[Email](mailto:alice@example.com)', '[FTP](ftp://example.com/file)', '[Invalid](https://)',
+ '[**Strong relative**](./bold.md)', '<a href="./raw.md"><em>Raw relative</em></a>',
+ '[HTTPS](https://example.com/docs?q=1#part)', '[HTTP](http://example.com/path)',
+ 'https://example.org/auto', '<https://example.net/angle>', 'www.example.com', 'alice@example.com',
+ '[Reference][ref]', '[ref]: https://example.edu/reference'
+ ].join('\n\n')});
+ const publicContext=await browser.newContext();const linkPage=await publicContext.newPage();let resolveRequests=0;
+ linkPage.on('request',r=>{if(r.url().includes('/api/resolve'))resolveRequests++});linkPage.on('pageerror',e=>errors.push(e.message));await linkPage.goto(new URL(base).origin+links.url);
+ await linkPage.locator('#content').waitFor();assert.equal(await linkPage.title(),'Document <links> & guide · Artifact Share');assert.equal(await linkPage.locator('.share-owner').textContent(),'オーナー: admin');
+ const hrefs=await linkPage.locator('#content a').evaluateAll(anchors=>anchors.map(a=>a.getAttribute('href')));
+ assert.deepEqual(hrefs,['https://example.com/docs?q=1#part','http://example.com/path','https://example.org/auto','https://example.net/angle','https://example.edu/reference']);
+ for(const label of ['Relative','Parent','Root','Protocol relative','Fragment','Query','Email','FTP','Invalid','Strong relative','Raw relative']) {
+  assert.equal(await linkPage.locator('#content').getByRole('link',{name:label,exact:true}).count(),0);
+  assert.ok((await linkPage.locator('#content').textContent()).includes(label));
+ }
+ assert.equal(await linkPage.locator('#content strong').textContent(),'Strong relative');assert.equal(await linkPage.locator('#content em').textContent(),'Raw relative');assert.equal(resolveRequests,0);
+ await page.goto(base+'/');await page.locator('.artifacts-table').waitFor();const ownRows=await page.locator('.artifacts-table tbody tr').count();assert.ok(ownRows>=4);assert.equal(await page.locator('.artifacts-table thead th').count(),6);
+ await page.locator('.artifacts-table [data-edit="'+links.id+'"]').click();await page.locator('#editor input[name=title]').waitFor();assert.equal(await page.locator('#editor input[name=source_path]').count(),0);await page.locator('#editor input[name=title]').fill('Updated link guide');await page.locator('#editor button.primary').click();await page.locator('dialog').waitFor();await page.locator('dialog button').click();
  await page.locator('[data-tab=admin]').click();await page.locator('#all .artifacts-table').waitFor();assert.ok(await page.locator('#all .artifacts-table tbody tr').count()>=ownRows);
  await page.locator('[data-tab=artifacts]').click();await page.locator('.artifacts-table').waitFor();await page.screenshot({path:'/workspace/artifact-share/docs/dashboard.png',fullPage:true});
  await publicContext.close();
- assert.deepEqual(errors,[]);console.log('PASS: browser login, admin creation, API key, publish, Mermaid SVG, HTML JavaScript, recipient-only HTML, table lists, title, owner, relative Markdown links');await browser.close();
+ assert.deepEqual(errors,[]);console.log('PASS: browser login, admin creation, API key, publish, Mermaid SVG, HTML JavaScript, recipient-only HTML, table lists, title, owner, absolute-only Markdown links');await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

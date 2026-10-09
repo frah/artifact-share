@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
-import { basename, extname, isAbsolute } from 'node:path';
+import { basename, extname } from 'node:path';
 
 const usage = `Usage:
-  artifact-share.mjs publish FILE [--title TITLE] [--source-path PATH] [--visibility link|users] [--users IDS | --usernames NAMES]
-  artifact-share.mjs update ID FILE [--title TITLE] [--source-path PATH] [--visibility link|users] [--users IDS | --usernames NAMES]
+  artifact-share.mjs publish FILE [--title TITLE] [--visibility link|users] [--users IDS | --usernames NAMES]
+  artifact-share.mjs update ID FILE [--title TITLE] [--visibility link|users] [--users IDS | --usernames NAMES]
   artifact-share.mjs list | users | get ID | delete ID
 
 Set ARTIFACT_SHARE_URL (including any base path) and ARTIFACT_SHARE_KEY.
@@ -13,7 +13,7 @@ Recipient IDs or exact usernames are comma-separated. Node.js 18+ is required.`;
 function parse(args) {
   const options = {};
   const positional = [];
-  const known = new Set(['title', 'source-path', 'visibility', 'users', 'usernames']);
+  const known = new Set(['title', 'visibility', 'users', 'usernames']);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (!arg.startsWith('--')) { positional.push(arg); continue; }
@@ -107,10 +107,7 @@ async function main(args) {
       }
       const title = options.title ?? old?.title ?? basename(file);
       if (!title.trim()) throw new Error('Title must not be empty');
-      const portableFile = file.replaceAll('\\', '/');
-      const defaultPath = isAbsolute(file) || /^[a-z]:/i.test(portableFile) || portableFile.split('/').includes('..') ? basename(file) : portableFile;
-      const source_path = options['source-path'] ?? old?.source_path ?? defaultPath;
-      const payload = { title, kind, content, visibility, users: recipients, source_path };
+      const payload = { title, kind, content, visibility, users: recipients };
       if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > 10 * 1024 * 1024) throw new Error('JSON request body exceeds 10 MiB');
       const path = command === 'publish' ? '/artifacts' : idPath(positional[0]);
       result = summary(await api(path, command === 'publish' ? 'POST' : 'PUT', payload));
