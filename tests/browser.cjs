@@ -2,8 +2,8 @@
 const {chromium}=require('playwright');
 const assert=require('node:assert/strict');
 const path=require('node:path');
-async function assertViewerLayout(page, html = false) {
- for (const viewport of [{width:1440,height:1000},{width:375,height:812}]) {
+async function assertViewerLayout(page, html = false, capture = false) {
+ for (const viewport of [{width:1440,height:1000},{width:1024,height:768},{width:375,height:812},{width:320,height:640}]) {
   await page.setViewportSize(viewport);
   await page.waitForFunction(()=>document.body.classList.contains('artifact-view'));
   assert.equal(await page.locator('body > header .share-head').count(),1);
@@ -20,6 +20,21 @@ async function assertViewerLayout(page, html = false) {
   assert.ok(Math.abs(bounds.content.height-bounds.main.height)<1);
   assert.ok(bounds.main.height>bounds.height/2,'metadata leaves room for content');
   assert.ok(bounds.bodyWidth<=bounds.width+1,'no page-level horizontal overflow');
+  assert.equal(await page.locator('body > header .tag').count(),0);
+  if(viewport.width>760) {
+   assert.ok(bounds.header.height<=56,'desktop header stays one compact row');
+   assert.equal(await page.locator('header .share-head h1').evaluate(node=>getComputedStyle(node).whiteSpace),'nowrap');
+   const brand=await page.locator('header .brand').boundingBox();
+   const title=await page.locator('header .share-head h1').boundingBox();
+   assert.ok(Math.abs((brand.y+brand.height/2)-(title.y+title.height/2))<4,'title aligns with logo in the same row');
+  } else {
+   assert.equal(await page.locator('header .brand').evaluate(node=>getComputedStyle(node).fontSize),'0px','large wordmark is hidden on phones');
+   assert.equal(await page.locator('header .share-head p').evaluate(node=>getComputedStyle(node).whiteSpace),'normal');
+   assert.ok((await page.locator('header .logo').boundingBox()).width<=28);
+  }
+  if(capture && [1440,375].includes(viewport.width)) {
+   await page.screenshot({path:path.join(__dirname,'../docs/'+(html?'html':'viewer')+'-'+(viewport.width>760?'desktop':'mobile')+'.png'),fullPage:true});
+  }
   if(html) {
    const iframe=await page.locator('#content > iframe').boundingBox();
    assert.ok(Math.abs(iframe.width-bounds.content.width)<1);
@@ -45,8 +60,8 @@ async function assertViewerLayout(page, html = false) {
  await page.locator('[data-tab=admin]').click();await page.locator('#userform input[name=name]').fill(username);await page.locator('#userform input[name=password]').fill('initial-password');await page.locator('#userform button').click();await page.getByRole('cell',{name:username,exact:true}).waitFor();
  await page.locator('[data-tab=keys]').click();await page.locator('#keyform input').fill('Browser test');await page.locator('#keyform button').click();await page.locator('dialog').waitFor();const key=await page.locator('dialog input').inputValue();assert.ok(key.startsWith('ash_'));await page.locator('dialog button').click();
  await page.locator('#new').click();await page.locator('#editor input[name=title]').fill('Mermaid rendering test');await page.locator('#editor button.primary').click();await page.locator('dialog').waitFor();const share=await page.locator('dialog input').inputValue();await page.locator('dialog button').click();await page.locator('[data-tab=artifacts]').click();await page.locator('.artifacts-table').waitFor();await page.screenshot({path:path.join(__dirname,'../docs/dashboard.png'),fullPage:true});
- const anonymous=await browser.newContext();const viewer=await anonymous.newPage();viewer.on('pageerror',e=>errors.push(e.message));await viewer.goto(share);await viewer.locator('.mermaid svg').waitFor();assert.equal(await viewer.locator('.mermaid svg').count(),1);assert.equal(await viewer.title(),'Mermaid rendering test · Artifact Share');assert.equal(await viewer.locator('.share-owner').textContent(),'オーナー: admin');await assertViewerLayout(viewer);await viewer.screenshot({path:path.join(__dirname,'../docs/markdown.png'),fullPage:true});
- const api=await ctx.request.post(base+'/api/artifacts',{headers:{Authorization:'Bearer '+key},data:{title:'Interactive HTML',kind:'html',content:'<h1 id="output">Before</h1><script>document.querySelector("#output").textContent="Script works"</script>',visibility:'link',users:[]}});assert.equal(api.status(),201);const html=await api.json();await viewer.goto(new URL(base).origin+html.url);await viewer.frameLocator('iframe').locator('#output').waitFor();assert.equal(await viewer.frameLocator('iframe').locator('#output').textContent(),'Script works');await assertViewerLayout(viewer,true);
+ const anonymous=await browser.newContext();const viewer=await anonymous.newPage();viewer.on('pageerror',e=>errors.push(e.message));await viewer.goto(share);await viewer.locator('.mermaid svg').waitFor();assert.equal(await viewer.locator('.mermaid svg').count(),1);assert.equal(await viewer.title(),'Mermaid rendering test · Artifact Share');assert.equal(await viewer.locator('.share-owner').textContent(),'オーナー: admin');await assertViewerLayout(viewer,false,true);await viewer.screenshot({path:path.join(__dirname,'../docs/markdown.png'),fullPage:true});
+ const api=await ctx.request.post(base+'/api/artifacts',{headers:{Authorization:'Bearer '+key},data:{title:'Interactive HTML',kind:'html',content:'<h1 id="output">Before</h1><script>document.querySelector("#output").textContent="Script works"</script>',visibility:'link',users:[]}});assert.equal(api.status(),201);const html=await api.json();await viewer.goto(new URL(base).origin+html.url);await viewer.frameLocator('iframe').locator('#output').waitFor();assert.equal(await viewer.frameLocator('iframe').locator('#output').textContent(),'Script works');await assertViewerLayout(viewer,true,true);
  const users=await (await ctx.request.get(base+'/api/users',{headers:{Authorization:'Bearer '+key}})).json();const recipient=users.find(x=>x.name===username);const restricted=await (await ctx.request.post(base+'/api/artifacts',{headers:{Authorization:'Bearer '+key},data:{title:'Private HTML',kind:'html',content:'<h1>Private content</h1>',visibility:'users',users:[recipient.id]}})).json();await viewer.goto(new URL(base).origin+restricted.url);await viewer.getByRole('heading',{name:'コンテンツを表示できません'}).waitFor();await viewer.goto(base+'/');await viewer.locator('#login input[name=name]').fill(username);await viewer.locator('#login input[name=password]').fill('initial-password');await viewer.locator('#login button').click();await viewer.locator('#new').waitFor();await viewer.goto(new URL(base).origin+restricted.url);await viewer.frameLocator('iframe').getByRole('heading',{name:'Private content'}).waitFor();
 
  const publish=async data=>{const response=await ctx.request.post(base+'/api/artifacts',{headers:{Authorization:'Bearer '+key},data:{kind:'md',visibility:'link',users:[],...data}});assert.equal(response.status(),201);return response.json()};
@@ -71,8 +86,8 @@ async function assertViewerLayout(page, html = false) {
  await page.locator('.artifacts-table [data-edit="'+links.id+'"]').click();await page.locator('#editor input[name=title]').waitFor();assert.equal(await page.locator('#editor input[name=source_path]').count(),0);await page.locator('#editor input[name=title]').fill('Updated link guide');await page.locator('#editor button.primary').click();await page.locator('dialog').waitFor();await page.locator('dialog button').click();
  await page.locator('[data-tab=admin]').click();await page.locator('#all .artifacts-table').waitFor();assert.ok(await page.locator('#all .artifacts-table tbody tr').count()>=ownRows);
  await page.locator('[data-tab=artifacts]').click();await page.locator('.artifacts-table').waitFor();await page.screenshot({path:path.join(__dirname,'../docs/dashboard.png'),fullPage:true});
- const longDocument=await publish({title:'長いドキュメント名 '.repeat(30),content:'# Long document\\n\\n'+'A paragraph of text.\\n\\n'.repeat(100)});
+ const longDocument=await publish({title:'長いドキュメント名 '.repeat(30),content:'# Long document\n\n'+'A paragraph of text.\n\n'.repeat(100)});
  await linkPage.goto(new URL(base).origin+longDocument.url);await assertViewerLayout(linkPage);
  await publicContext.close();
- assert.deepEqual(errors,[]);console.log('PASS: browser login, admin creation, API key, publish, Mermaid SVG, HTML JavaScript, recipient-only HTML, table lists, title, owner, absolute-only Markdown links, full viewport layout and persistent metadata header');await browser.close();
+ assert.deepEqual(errors,[]);console.log('PASS: browser login, admin creation, API key, publish, Mermaid SVG, HTML JavaScript, recipient-only HTML, table lists, title, owner, absolute-only Markdown links, full viewport layout and compact responsive metadata header');await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});
