@@ -9,6 +9,9 @@
     const details = app.querySelector(':scope > .share-head');
     const content = app.querySelector(':scope > .viewer');
     if (!details || !content) return;
+    for (const node of details.querySelectorAll('h1, p')) node.title = node.textContent.trim();
+    const home = header.querySelector('.brand');
+    if (home) home.setAttribute('aria-label', 'Artifact Share の一覧へ');
     header.append(details);
     header.classList.add('viewer-header');
     document.body.classList.add('artifact-view');
