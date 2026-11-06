@@ -1,0 +1,46 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: go test ./...
+      - run: npm run build
+      - run: go build -o bin/artifact-share .
+        env:
+          CGO_ENABLED: '0'
+      - run: node --test tests/skill.test.mjs
+      - run: npx playwright install --with-deps chromium
+      - name: Browser tests
+        shell: bash
+        run: |
+          ADMIN_PASSWORD=initial-password BASE_PATH=/artifacts PORT=18080 DATABASE_URL=file:/tmp/artifact-share-browser.db ./bin/artifact-share > /tmp/artifact-share-browser.log 2>&1 &
+          artifact_pid=$!
+          trap 'kill "$artifact_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..50}; do
+            if curl --fail --silent http://localhost:18080/healthz >/dev/null; then
+              break
+            fi
+            sleep 0.2
+          done
+          node tests/browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-screenshots
+          path: docs/*.png
